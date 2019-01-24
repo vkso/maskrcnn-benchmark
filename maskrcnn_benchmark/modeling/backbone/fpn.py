@@ -37,27 +37,63 @@ class FPN(nn.Module):
             self.layer_blocks.append(layer_block)
         self.top_blocks = top_blocks
 
+    # def forward(self, x):
+    #     """
+    #     Arguments:
+    #         x (list[Tensor]): feature maps for each feature level.
+    #     Returns:
+    #         results (tuple[Tensor]): feature maps after FPN layers.
+    #             They are ordered from highest resolution first.
+    #     """
+    #     last_inner = getattr(self, self.inner_blocks[-1])(x[-1])
+    #     results = []
+    #     results.append(getattr(self, self.layer_blocks[-1])(last_inner))
+    #     for feature, inner_block, layer_block in zip(
+    #         x[:-1][::-1], self.inner_blocks[:-1][::-1], self.layer_blocks[:-1][::-1]
+    #     ):
+    #         inner_top_down = F.interpolate(last_inner, scale_factor=2, mode="nearest")
+    #         inner_lateral = getattr(self, inner_block)(feature)
+    #         # TODO use size instead of scale to make it robust to different sizes
+    #         # inner_top_down = F.upsample(last_inner, size=inner_lateral.shape[-2:],
+    #         # mode='bilinear', align_corners=False)
+    #         last_inner = inner_lateral + inner_top_down
+    #         results.insert(0, getattr(self, layer_block)(last_inner))
+
+    #     if self.top_blocks is not None:
+    #         last_results = self.top_blocks(results[-1])
+    #         results.extend(last_results)
+
+    #     return tuple(results)
+
     def forward(self, x):
         """
-        Arguments:
-            x (list[Tensor]): feature maps for each feature level.
-        Returns:
-            results (tuple[Tensor]): feature maps after FPN layers.
-                They are ordered from highest resolution first.
+        DenseFPN: We use 4 fpn layers just like DenseNet. 
         """
-        last_inner = getattr(self, self.inner_blocks[-1])(x[-1])
+
+        p5_inner = getattr(self, self.inner_blocks[-1])(x[-1])
         results = []
-        results.append(getattr(self, self.layer_blocks[-1])(last_inner))
-        for feature, inner_block, layer_block in zip(
-            x[:-1][::-1], self.inner_blocks[:-1][::-1], self.layer_blocks[:-1][::-1]
-        ):
-            inner_top_down = F.interpolate(last_inner, scale_factor=2, mode="nearest")
-            inner_lateral = getattr(self, inner_block)(feature)
-            # TODO use size instead of scale to make it robust to different sizes
-            # inner_top_down = F.upsample(last_inner, size=inner_lateral.shape[-2:],
-            # mode='bilinear', align_corners=False)
-            last_inner = inner_lateral + inner_top_down
-            results.insert(0, getattr(self, layer_block)(last_inner))
+        results.append(getattr(self, self.layer_blocks[-1])(p5_inner))
+
+        p5x2_inner = F.interpolate(p5_inner, scale_factor=2, mode="nearest")
+        p5x4_inner = F.interpolate(p5_inner, scale_factor=4, mode="nearest")
+        p5x8_inner = F.interpolate(p5_inner, scale_factor=8, mode="nearest")
+
+        c4_inner = getattr(self, self.inner_blocks[-2])(x[-2])
+        p4_inner = p5x2_inner + c4_inner
+        results.insert(0, getattr(self, self.layer_blocks[-2])(p4_inner))
+
+        p4x2_inner = F.interpolate(p4_inner, scale_factor=2, mode="nearest")
+        p4x4_inner = F.interpolate(p4_inner, scale_factor=4, mode="nearest")
+
+        c3_inner = getattr(self, self.inner_blocks[-3])(x[-3])
+        p3_inner = p5x4_inner + p4x2_inner + c3_inner
+        results.insert(0, getattr(self, self.layer_blocks[-3])(p3_inner))
+
+        p3x2_inner = F.interpolate(p3_inner, scale_factor=2, mode="nearest")
+
+        c2_inner = getattr(self, self.inner_blocks[-4])(x[-4])
+        p2_inner = p5x8_inner + p4x4_inner + p3x2_inner + c2_inner
+        results.insert(0, getattr(self, self.layer_blocks[-4])(p2_inner))
 
         if self.top_blocks is not None:
             last_results = self.top_blocks(results[-1])
